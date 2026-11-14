@@ -34,3 +34,12 @@ To include Antigravity, build it first and include it in the install targets:
 - `node shared/scripts/skillpack-install.mjs --dest=../some-repo --targets=codex,vscode,claude,cursor,antigravity`
 
 By default, install mode is `replace` (it replaces only the skill directories it installs).
+
+## Cursor and Grok Bot plugin
+
+The repository root is also a Cursor plugin, which Grok Bot installs from the same manifest.
+
+- `.cursor-plugin/plugin.json` declares the plugin and points `skills` at `./skills/`.
+- `.cursor-plugin/marketplace.json` registers that plugin at the repository root (`"source": "."`).
+
+No skill copies are required. Both clients discover each `skills/<name>/SKILL.md` from the manifest.

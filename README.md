@@ -156,6 +156,19 @@ node shared/scripts/skillpack-install.mjs --targets=cursor-global
 
 This installs skills to `~/.cursor/skills/` where Cursor will discover them.
 
+### Install as a Cursor or Grok Bot plugin
+
+This repository is a Cursor plugin. Grok Bot installs the same package. The manifest at `.cursor-plugin/plugin.json` exposes every skill under `skills/`.
+
+Link a local checkout so Cursor loads it immediately:
+
+```bash
+mkdir -p ~/.cursor/plugins/local
+ln -sfn "$(pwd)" ~/.cursor/plugins/local/wordpress-skills
+```
+
+To list it for Cursor and Grok Bot, push the repository and submit its URL at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish).
+
 ### Install globally for Antigravity
 
 ```bash

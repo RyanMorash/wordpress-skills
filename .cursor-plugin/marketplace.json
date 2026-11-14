@@ -1,0 +1,16 @@
+{
+  "name": "wordpress-skills",
+  "owner": {
+    "name": "WordPress Contributors"
+  },
+  "metadata": {
+    "description": "Agent skills for building WordPress the current way."
+  },
+  "plugins": [
+    {
+      "name": "wordpress-skills",
+      "source": ".",
+      "description": "Agent skills for building WordPress the current way: blocks, block themes, plugins, the REST and Abilities APIs, WP-CLI, Playground, performance, and PHPStan."
+    }
+  ]
+}
