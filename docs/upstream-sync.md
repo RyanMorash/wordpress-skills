@@ -1,5 +1,17 @@
 # Upstream sync (automation plan)
 
+## This fork
+
+`.github/workflows/sync-upstream-fork.yml` keeps this fork current with [WordPress/agent-skills](https://github.com/WordPress/agent-skills) `trunk`. It runs every day at 11:17 UTC (6:17am Eastern Standard Time) and can be started with **Run workflow**.
+
+The job merges upstream into this repository, then restores files that exist only on this fork, including `.cursor-plugin/`, `.claude-plugin/`, and `assets/logo.svg`. It also puts back fork-only sections in `README.md` and `docs/*.md`.
+
+Skill files follow upstream, including files upstream removes. Do not keep fork-only edits under `skills/`; the next sync replaces them. When the merge applies, the workflow pushes to `trunk`. If that push is rejected, it opens a pull request from `chore/sync-upstream-skills`.
+
+The script is `.github/scripts/sync-upstream-fork.sh`. Run it locally with `SYNC_MODE=dry-run` to preview a merge without pushing.
+
+## Release indexes
+
 Goal: when upstream changes (WordPress core releases, Gutenberg releases, docs updates), the repo should **regenerate indexes** and (eventually) **open PRs** that update affected skills/references.
 
 ## What to automate first (low risk)
