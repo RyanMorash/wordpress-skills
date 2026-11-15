@@ -169,6 +169,30 @@ ln -sfn "$(pwd)" ~/.cursor/plugins/local/wordpress-skills
 
 To list it for Cursor and Grok Bot, push the repository and submit its URL at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish).
 
+### Install as a Claude Code plugin
+
+This repository is a Claude Code plugin. The manifest at `.claude-plugin/plugin.json` names it `wordpress-skills`, and Claude Code loads every skill under `skills/`.
+
+Add the marketplace, then install the plugin:
+
+```bash
+claude plugin marketplace add RyanMorash/wordpress-skills
+claude plugin install wordpress-skills@wordpress-skills
+```
+
+From a local checkout, point the marketplace add command at the repository root:
+
+```bash
+claude plugin marketplace add .
+claude plugin install wordpress-skills@wordpress-skills
+```
+
+To load that checkout for one session without installing it:
+
+```bash
+claude --plugin-dir .
+```
+
 ### Install globally for Antigravity
 
 ```bash
