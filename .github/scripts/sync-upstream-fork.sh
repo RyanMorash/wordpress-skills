@@ -63,9 +63,35 @@ git fetch origin "$BASE_BRANCH"
 
 FORK_HEAD="$(git rev-parse "origin/${BASE_BRANCH}")"
 UPSTREAM_HEAD="$(git rev-parse "${SYNC_REMOTE}/${UPSTREAM_BRANCH}")"
+MERGE_BASE="$(git merge-base "$FORK_HEAD" "$UPSTREAM_HEAD")"
+
+# Files added on this fork since it diverged, and still absent from upstream.
+# A file upstream deleted existed at the merge base, so it is not included.
+list_fork_only_paths() {
+  local path
+  while IFS= read -r -d '' path; do
+    if ! git cat-file -e "${UPSTREAM_HEAD}:${path}" 2>/dev/null; then
+      printf '%s\0' "$path"
+    fi
+  done < <(git diff --name-only -z --no-renames --diff-filter=A "$MERGE_BASE" "$FORK_HEAD")
+}
+
+close_open_sync_pr() {
+  local number
+  number="$(gh pr list --base "$BASE_BRANCH" --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"
+  if [[ -z "$number" || "$number" == "null" ]]; then
+    return 0
+  fi
+  gh pr close "$number" --comment "Closed because these upstream skill changes are already on ${BASE_BRANCH}."
+  git push origin --delete "$SYNC_BRANCH" || true
+  echo "Closed pull request #${number}."
+}
 
 if git merge-base --is-ancestor "$UPSTREAM_HEAD" "$FORK_HEAD"; then
   echo "Fork ${BASE_BRANCH} already contains ${UPSTREAM_URL} ${UPSTREAM_BRANCH} (${UPSTREAM_HEAD})."
+  if [[ "$SYNC_MODE" == "auto" ]]; then
+    close_open_sync_pr
+  fi
   exit 0
 fi
 
@@ -91,16 +117,16 @@ merge_status=$?
 set -e
 
 if [[ "$merge_status" -ne 0 ]]; then
-  echo "Resolving conflicts. Upstream wins, except files that exist only on this fork."
+  echo "Resolving conflicts. Upstream wins, including deletions. Files added only on this fork stay."
   while IFS= read -r -d '' path; do
     if git cat-file -e "${UPSTREAM_HEAD}:${path}" 2>/dev/null; then
       if ! git checkout --theirs -- "$path"; then
         git rm -f -- "$path" || true
       fi
-    else
-      if ! git checkout --ours -- "$path"; then
-        git rm -f -- "$path" || true
-      fi
+    elif git cat-file -e "${MERGE_BASE}:${path}" 2>/dev/null; then
+      git rm -f -- "$path" || true
+    elif ! git checkout --ours -- "$path"; then
+      git rm -f -- "$path" || true
     fi
     git add -- "$path" || true
   done < <(git diff --name-only -z --diff-filter=U)
@@ -118,11 +144,10 @@ if [[ "$merge_status" -ne 0 ]]; then
   fi
 fi
 
-# Restore paths that exist only on the fork (plugin manifests, logo, and any
-# later fork-only files). Upstream copies of shared files stay in place.
+# Restore paths this fork added. Do not put back files upstream removed.
 while IFS= read -r -d '' path; do
   git checkout "$FORK_HEAD" -- "$path"
-done < <(git diff --name-only -z --diff-filter=A "$UPSTREAM_HEAD" "$FORK_HEAD")
+done < <(list_fork_only_paths)
 
 python3 "$SYNC_OVERLAY_PY" "$FORK_HEAD" "$UPSTREAM_HEAD"
 
@@ -136,7 +161,7 @@ while IFS= read -r -d '' path; do
     echo "Fork-only path is missing after sync: ${path}" >&2
     exit 1
   fi
-done < <(git diff --name-only -z --diff-filter=A "$UPSTREAM_HEAD" "$FORK_HEAD")
+done < <(list_fork_only_paths)
 
 echo "Validating skills..."
 node shared/scripts/validate-skills.mjs
@@ -168,6 +193,7 @@ fi
 
 if git push origin "HEAD:${BASE_BRANCH}"; then
   echo "Updated ${BASE_BRANCH}."
+  close_open_sync_pr
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "Pushed the merge to \`${BASE_BRANCH}\`." >>"$GITHUB_STEP_SUMMARY"
   fi

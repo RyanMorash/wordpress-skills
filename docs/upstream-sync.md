@@ -6,7 +6,7 @@
 
 The job merges upstream into this repository, then restores files that exist only on this fork, including `.cursor-plugin/`, `.claude-plugin/`, and `assets/logo.svg`. It also puts back fork-only sections in `README.md` and `docs/*.md`.
 
-Skill files follow upstream. Do not keep fork-only edits under `skills/`; the next sync replaces them. When the merge applies, the workflow pushes to `trunk`. If that push is rejected, it opens a pull request from `chore/sync-upstream-skills`.
+Skill files follow upstream, including files upstream removes. Do not keep fork-only edits under `skills/`; the next sync replaces them. When the merge applies, the workflow pushes to `trunk`. If that push is rejected, it opens a pull request from `chore/sync-upstream-skills`.
 
 The script is `.github/scripts/sync-upstream-fork.sh`. Run it locally with `SYNC_MODE=dry-run` to preview a merge without pushing.
 
