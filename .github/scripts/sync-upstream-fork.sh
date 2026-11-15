@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Merge WordPress/agent-skills into this fork and keep the Cursor plugin overlay.
-# Skill files follow upstream. These fork-owned paths are restored afterward:
-#   .cursor-plugin/plugin.json
-#   .cursor-plugin/marketplace.json
-#   assets/logo.svg
-#   the Cursor and Grok Bot sections in README.md and docs/packaging.md
+# Merge WordPress/agent-skills into this fork.
+# Skill files follow upstream. Files that exist only on this fork are restored
+# afterward (plugin manifests, logo, and similar). Fork-only sections in
+# README.md and docs/*.md are put back as well.
 
 set -euo pipefail
 
@@ -93,20 +91,17 @@ merge_status=$?
 set -e
 
 if [[ "$merge_status" -ne 0 ]]; then
-  echo "Resolving conflicts. Upstream wins, except the fork-owned plugin files."
+  echo "Resolving conflicts. Upstream wins, except files that exist only on this fork."
   while IFS= read -r -d '' path; do
-    case "$path" in
-      .cursor-plugin/* | assets/logo.svg)
-        if ! git checkout --ours -- "$path"; then
-          git rm -f -- "$path" || true
-        fi
-        ;;
-      *)
-        if ! git checkout --theirs -- "$path"; then
-          git rm -f -- "$path" || true
-        fi
-        ;;
-    esac
+    if git cat-file -e "${UPSTREAM_HEAD}:${path}" 2>/dev/null; then
+      if ! git checkout --theirs -- "$path"; then
+        git rm -f -- "$path" || true
+      fi
+    else
+      if ! git checkout --ours -- "$path"; then
+        git rm -f -- "$path" || true
+      fi
+    fi
     git add -- "$path" || true
   done < <(git diff --name-only -z --diff-filter=U)
 
@@ -123,40 +118,25 @@ if [[ "$merge_status" -ne 0 ]]; then
   fi
 fi
 
-# Re-apply the plugin overlay from the fork tip we merged into, even when the
-# merge auto-resolved those paths toward upstream.
-owned_paths=(
-  .cursor-plugin/plugin.json
-  .cursor-plugin/marketplace.json
-  assets/logo.svg
-)
-for path in "${owned_paths[@]}"; do
-  if git cat-file -e "${FORK_HEAD}:${path}" 2>/dev/null; then
-    git checkout "$FORK_HEAD" -- "$path"
-  fi
-done
+# Restore paths that exist only on the fork (plugin manifests, logo, and any
+# later fork-only files). Upstream copies of shared files stay in place.
+while IFS= read -r -d '' path; do
+  git checkout "$FORK_HEAD" -- "$path"
+done < <(git diff --name-only -z --diff-filter=A "$UPSTREAM_HEAD" "$FORK_HEAD")
 
-python3 "$SYNC_OVERLAY_PY" "$FORK_HEAD"
+python3 "$SYNC_OVERLAY_PY" "$FORK_HEAD" "$UPSTREAM_HEAD"
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add -- README.md docs/packaging.md .cursor-plugin assets/logo.svg
-  git commit -m "chore: keep the Cursor and Grok Bot plugin overlay"
+  git add -u -- README.md docs
+  git commit -m "chore: keep fork-only plugin files and docs"
 fi
 
-for path in "${owned_paths[@]}"; do
-  if [[ ! -f "$path" ]]; then
-    echo "Plugin overlay is missing ${path} after sync." >&2
+while IFS= read -r -d '' path; do
+  if [[ ! -e "$path" ]]; then
+    echo "Fork-only path is missing after sync: ${path}" >&2
     exit 1
   fi
-done
-if ! grep -q "Install as a Cursor or Grok Bot plugin" README.md; then
-  echo "README is missing the Cursor and Grok Bot plugin section." >&2
-  exit 1
-fi
-if ! grep -q "Cursor and Grok Bot plugin" docs/packaging.md; then
-  echo "docs/packaging.md is missing the Cursor and Grok Bot plugin section." >&2
-  exit 1
-fi
+done < <(git diff --name-only -z --diff-filter=A "$UPSTREAM_HEAD" "$FORK_HEAD")
 
 echo "Validating skills..."
 node shared/scripts/validate-skills.mjs
@@ -211,13 +191,9 @@ Upstream commits:
 ${COMMIT_LIST}
 \`\`\`
 
-Fork-only plugin files stay as they are on \`${BASE_BRANCH}\`:
+Files that exist only on \`${BASE_BRANCH}\` stay in place, including plugin manifests and \`assets/logo.svg\`. Fork-only sections in \`README.md\` and \`docs/*.md\` are kept. Skill files follow upstream.
 
-- \`.cursor-plugin/\`
-- \`assets/logo.svg\`
-- the Cursor and Grok Bot plugin notes in \`README.md\` and \`docs/packaging.md\`
-
-Skill files follow upstream. A direct push to \`${BASE_BRANCH}\` was rejected, so this pull request needs a merge.
+A direct push to \`${BASE_BRANCH}\` was rejected, so this pull request needs a merge.
 EOF
 )"
 
