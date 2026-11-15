@@ -1,0 +1,33 @@
+name: Sync upstream skills
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 11:17 UTC, which is 6:17am Eastern Standard Time.
+    - cron: "17 11 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-fork
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: trunk
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Merge WordPress/agent-skills and keep the plugin overlay
+        env:
+          SYNC_MODE: auto
+        run: bash .github/scripts/sync-upstream-fork.sh

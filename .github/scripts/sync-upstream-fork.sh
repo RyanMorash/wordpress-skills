@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# Merge WordPress/agent-skills into this fork and keep the Cursor plugin overlay.
+# Skill files follow upstream. These fork-owned paths are restored afterward:
+#   .cursor-plugin/plugin.json
+#   .cursor-plugin/marketplace.json
+#   assets/logo.svg
+#   the Cursor and Grok Bot sections in README.md and docs/packaging.md
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# Later steps check out another commit, which can replace this file mid-run.
+# Continue from a copy so the rest of the script stays stable.
+if [[ -z "${SYNC_REEXEC:-}" ]]; then
+  reexec_dir="$(mktemp -d)"
+  cp "$ROOT/.github/scripts/sync-upstream-fork.sh" "$reexec_dir/sync-upstream-fork.sh"
+  cp "$ROOT/.github/scripts/ensure-plugin-overlay.py" "$reexec_dir/ensure-plugin-overlay.py"
+  export SYNC_REEXEC=1
+  export SYNC_OVERLAY_PY="$reexec_dir/ensure-plugin-overlay.py"
+  exec bash "$reexec_dir/sync-upstream-fork.sh"
+fi
+
+UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/WordPress/agent-skills.git}"
+UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-trunk}"
+BASE_BRANCH="${BASE_BRANCH:-trunk}"
+SYNC_REMOTE="${SYNC_REMOTE:-wordpress-agent-skills}"
+SYNC_BRANCH="${SYNC_BRANCH:-chore/sync-upstream-skills}"
+
+if [[ -z "${SYNC_MODE:-}" ]]; then
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    SYNC_MODE="auto"
+  else
+    SYNC_MODE="dry-run"
+  fi
+fi
+
+case "$SYNC_MODE" in
+  auto | dry-run) ;;
+  *)
+    echo "SYNC_MODE must be auto or dry-run (got: ${SYNC_MODE})" >&2
+    exit 2
+    ;;
+esac
+
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-github-actions[bot]}"
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}"
+export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Working tree is dirty. Commit or stash local changes before syncing." >&2
+  exit 1
+fi
+
+if git remote get-url "$SYNC_REMOTE" >/dev/null 2>&1; then
+  git remote set-url "$SYNC_REMOTE" "$UPSTREAM_URL"
+else
+  git remote add "$SYNC_REMOTE" "$UPSTREAM_URL"
+fi
+
+git fetch "$SYNC_REMOTE" "$UPSTREAM_BRANCH"
+git fetch origin "$BASE_BRANCH"
+
+FORK_HEAD="$(git rev-parse "origin/${BASE_BRANCH}")"
+UPSTREAM_HEAD="$(git rev-parse "${SYNC_REMOTE}/${UPSTREAM_BRANCH}")"
+
+if git merge-base --is-ancestor "$UPSTREAM_HEAD" "$FORK_HEAD"; then
+  echo "Fork ${BASE_BRANCH} already contains ${UPSTREAM_URL} ${UPSTREAM_BRANCH} (${UPSTREAM_HEAD})."
+  exit 0
+fi
+
+echo "Upstream commits not in this fork:"
+git log --oneline "${FORK_HEAD}..${UPSTREAM_HEAD}"
+
+COMMIT_LIST="$(git log -50 --oneline "${FORK_HEAD}..${UPSTREAM_HEAD}")"
+MERGE_MESSAGE="$(cat <<EOF
+chore: sync skills from WordPress/agent-skills
+
+Merge ${UPSTREAM_HEAD} from ${UPSTREAM_URL} (${UPSTREAM_BRANCH}).
+
+Upstream commits:
+${COMMIT_LIST}
+EOF
+)"
+
+git checkout -B "$SYNC_BRANCH" "$FORK_HEAD"
+
+set +e
+git merge --no-ff -m "$MERGE_MESSAGE" "$UPSTREAM_HEAD"
+merge_status=$?
+set -e
+
+if [[ "$merge_status" -ne 0 ]]; then
+  echo "Resolving conflicts. Upstream wins, except the fork-owned plugin files."
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      .cursor-plugin/* | assets/logo.svg)
+        if ! git checkout --ours -- "$path"; then
+          git rm -f -- "$path" || true
+        fi
+        ;;
+      *)
+        if ! git checkout --theirs -- "$path"; then
+          git rm -f -- "$path" || true
+        fi
+        ;;
+    esac
+    git add -- "$path" || true
+  done < <(git diff --name-only -z --diff-filter=U)
+
+  if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
+    echo "Unresolved conflicts remain:" >&2
+    git diff --name-only --diff-filter=U >&2
+    exit 1
+  fi
+
+  if git diff --cached --quiet && git diff --quiet; then
+    git commit --allow-empty --no-edit
+  else
+    git commit --no-edit
+  fi
+fi
+
+# Re-apply the plugin overlay from the fork tip we merged into, even when the
+# merge auto-resolved those paths toward upstream.
+owned_paths=(
+  .cursor-plugin/plugin.json
+  .cursor-plugin/marketplace.json
+  assets/logo.svg
+)
+for path in "${owned_paths[@]}"; do
+  if git cat-file -e "${FORK_HEAD}:${path}" 2>/dev/null; then
+    git checkout "$FORK_HEAD" -- "$path"
+  fi
+done
+
+python3 "$SYNC_OVERLAY_PY" "$FORK_HEAD"
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  git add -- README.md docs/packaging.md .cursor-plugin assets/logo.svg
+  git commit -m "chore: keep the Cursor and Grok Bot plugin overlay"
+fi
+
+for path in "${owned_paths[@]}"; do
+  if [[ ! -f "$path" ]]; then
+    echo "Plugin overlay is missing ${path} after sync." >&2
+    exit 1
+  fi
+done
+if ! grep -q "Install as a Cursor or Grok Bot plugin" README.md; then
+  echo "README is missing the Cursor and Grok Bot plugin section." >&2
+  exit 1
+fi
+if ! grep -q "Cursor and Grok Bot plugin" docs/packaging.md; then
+  echo "docs/packaging.md is missing the Cursor and Grok Bot plugin section." >&2
+  exit 1
+fi
+
+echo "Validating skills..."
+node shared/scripts/validate-skills.mjs
+
+if git diff --quiet "$FORK_HEAD" HEAD; then
+  echo "No file changes after preserving the fork overlay."
+  exit 0
+fi
+
+echo "Files changed relative to ${BASE_BRANCH}:"
+git diff --stat "$FORK_HEAD" HEAD
+
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "### Upstream skill sync"
+    echo
+    echo "Merged \`${UPSTREAM_HEAD}\` from WordPress/agent-skills \`${UPSTREAM_BRANCH}\`."
+    echo
+    echo '```'
+    printf '%s\n' "$COMMIT_LIST"
+    echo '```'
+  } >>"$GITHUB_STEP_SUMMARY"
+fi
+
+if [[ "$SYNC_MODE" == "dry-run" ]]; then
+  echo "Dry run: not pushing."
+  exit 0
+fi
+
+if git push origin "HEAD:${BASE_BRANCH}"; then
+  echo "Updated ${BASE_BRANCH}."
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    echo "Pushed the merge to \`${BASE_BRANCH}\`." >>"$GITHUB_STEP_SUMMARY"
+  fi
+  exit 0
+fi
+
+echo "Push to ${BASE_BRANCH} was rejected. Opening a pull request instead."
+if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null 2>&1; then
+  git fetch origin "$SYNC_BRANCH"
+  git push --force-with-lease="$SYNC_BRANCH" origin "HEAD:${SYNC_BRANCH}"
+else
+  git push -u origin "HEAD:${SYNC_BRANCH}"
+fi
+
+PR_BODY="$(cat <<EOF
+Brings this fork up to date with skill changes from [WordPress/agent-skills](https://github.com/WordPress/agent-skills) \`${UPSTREAM_BRANCH}\`.
+
+Upstream commits:
+
+\`\`\`
+${COMMIT_LIST}
+\`\`\`
+
+Fork-only plugin files stay as they are on \`${BASE_BRANCH}\`:
+
+- \`.cursor-plugin/\`
+- \`assets/logo.svg\`
+- the Cursor and Grok Bot plugin notes in \`README.md\` and \`docs/packaging.md\`
+
+Skill files follow upstream. A direct push to \`${BASE_BRANCH}\` was rejected, so this pull request needs a merge.
+EOF
+)"
+
+existing="$(gh pr list --base "$BASE_BRANCH" --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"
+if [[ -n "$existing" && "$existing" != "null" ]]; then
+  gh pr edit "$existing" --title "chore: sync skills from WordPress/agent-skills" --body "$PR_BODY"
+  echo "Updated pull request #${existing}."
+else
+  gh pr create \
+    --base "$BASE_BRANCH" \
+    --head "$SYNC_BRANCH" \
+    --title "chore: sync skills from WordPress/agent-skills" \
+    --body "$PR_BODY"
+fi
+
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  echo "Opened or updated a pull request from \`${SYNC_BRANCH}\`." >>"$GITHUB_STEP_SUMMARY"
+fi
