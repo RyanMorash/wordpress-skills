@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "wordpress-skills",
+  "displayName": "WordPress Skills",
+  "version": "1.0.0",
+  "description": "Agent skills for building WordPress the current way: blocks, block themes, plugins, the REST and Abilities APIs, WP-CLI, Playground, performance, and PHPStan.",
+  "author": {
+    "name": "WordPress Contributors"
+  },
+  "homepage": "https://github.com/RyanMorash/wordpress-skills",
+  "repository": "https://github.com/RyanMorash/wordpress-skills",
+  "license": "GPL-2.0-or-later",
+  "keywords": [
+    "wordpress",
+    "gutenberg",
+    "blocks",
+    "themes",
+    "plugins",
+    "wp-cli",
+    "playground",
+    "php"
+  ],
+  "icon": "./assets/logo.svg"
+}

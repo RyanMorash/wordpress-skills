@@ -43,3 +43,14 @@ The repository root is also a Cursor plugin, which Grok Bot installs from the sa
 - `.cursor-plugin/marketplace.json` registers that plugin at the repository root (`"source": "."`).
 
 No skill copies are required. Both clients discover each `skills/<name>/SKILL.md` from the manifest.
+
+## Claude Code plugin
+
+The repository root is also a Claude Code plugin.
+
+- `.claude-plugin/plugin.json` declares the plugin. Skills stay in the default `skills/` directory, and the manifest leaves `skills` unset so Claude Code scans that directory once.
+- `.claude-plugin/marketplace.json` registers that plugin at the repository root (`"source": "./"`). The entry `name` matches the manifest `name`.
+
+`version` in `plugin.json` is `1.0.0`. Claude Code keeps an installed copy on that version until the string changes, so bump it when publishing skill updates. `plugin.json` is the version source; keep `version` off the marketplace entry.
+
+No skill copies are required. Claude Code discovers each `skills/<name>/SKILL.md` from that layout.

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "wordpress-skills",
+  "description": "Agent skills for building WordPress the current way.",
+  "owner": {
+    "name": "WordPress Contributors"
+  },
+  "plugins": [
+    {
+      "name": "wordpress-skills",
+      "source": "./",
+      "description": "Agent skills for building WordPress the current way: blocks, block themes, plugins, the REST and Abilities APIs, WP-CLI, Playground, performance, and PHPStan.",
+      "category": "developer-tools",
+      "tags": [
+        "wordpress",
+        "skills",
+        "php"
+      ]
+    }
+  ]
+}
