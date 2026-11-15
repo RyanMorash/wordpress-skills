@@ -30,4 +30,5 @@ jobs:
       - name: Merge WordPress/agent-skills and keep the plugin overlay
         env:
           SYNC_MODE: auto
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/sync-upstream-fork.sh

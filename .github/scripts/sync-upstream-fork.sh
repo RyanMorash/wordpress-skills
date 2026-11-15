@@ -78,11 +78,21 @@ list_fork_only_paths() {
 
 close_open_sync_pr() {
   local number
-  number="$(gh pr list --base "$BASE_BRANCH" --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"
+  if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "No GitHub token is set, so any open sync pull request was left in place." >&2
+    return 0
+  fi
+  if ! number="$(gh pr list --base "$BASE_BRANCH" --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"; then
+    echo "Could not list open sync pull requests." >&2
+    return 1
+  fi
   if [[ -z "$number" || "$number" == "null" ]]; then
     return 0
   fi
-  gh pr close "$number" --comment "Closed because these upstream skill changes are already on ${BASE_BRANCH}."
+  if ! gh pr close "$number" --comment "Closed because these upstream skill changes are already on ${BASE_BRANCH}."; then
+    echo "Could not close pull request #${number}." >&2
+    return 1
+  fi
   git push origin --delete "$SYNC_BRANCH" || true
   echo "Closed pull request #${number}."
 }
@@ -90,7 +100,7 @@ close_open_sync_pr() {
 if git merge-base --is-ancestor "$UPSTREAM_HEAD" "$FORK_HEAD"; then
   echo "Fork ${BASE_BRANCH} already contains ${UPSTREAM_URL} ${UPSTREAM_BRANCH} (${UPSTREAM_HEAD})."
   if [[ "$SYNC_MODE" == "auto" ]]; then
-    close_open_sync_pr
+    close_open_sync_pr || echo "Fork is already up to date. An open sync pull request may still need to be closed." >&2
   fi
   exit 0
 fi
@@ -193,7 +203,10 @@ fi
 
 if git push origin "HEAD:${BASE_BRANCH}"; then
   echo "Updated ${BASE_BRANCH}."
-  close_open_sync_pr
+  if ! close_open_sync_pr; then
+    echo "Updated ${BASE_BRANCH}, but the sync pull request could not be closed." >&2
+    exit 1
+  fi
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "Pushed the merge to \`${BASE_BRANCH}\`." >>"$GITHUB_STEP_SUMMARY"
   fi
