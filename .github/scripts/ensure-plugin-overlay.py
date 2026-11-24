@@ -2,7 +2,8 @@
 """Put back fork-only sections in README.md and docs/*.md after an upstream merge.
 
 A section is fork-only when its heading exists on the fork commit and not on
-upstream. Skill files are left untouched so upstream skill text wins.
+upstream. Lines inside fenced code blocks are not headings. Skill files are
+left untouched so upstream skill text wins.
 """
 
 from __future__ import annotations
@@ -14,6 +15,19 @@ from pathlib import Path
 
 
 HEADING = re.compile(r"(?m)^(#{1,6} .+)$")
+
+
+def iter_headings(text: str):
+    """Yield ``(offset, heading)`` for ATX headings outside fenced code."""
+    fence = False
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        if body.startswith("```"):
+            fence = not fence
+        elif not fence and HEADING.fullmatch(body):
+            yield offset, body
+        offset += len(line)
 
 
 def git_show(rev: str, path: str) -> str | None:
@@ -43,20 +57,18 @@ def list_overlay_docs(rev: str) -> list[str]:
 
 
 def has_heading(text: str, heading: str) -> bool:
-    return re.search(rf"(?m)^{re.escape(heading)}$", text) is not None
+    return any(found == heading for _offset, found in iter_headings(text))
 
 
 def fork_only_sections(fork_text: str, upstream_text: str) -> list[tuple[str, str, str | None]]:
-    upstream_headings = set(HEADING.findall(upstream_text))
-    matches = list(HEADING.finditer(fork_text))
+    upstream_headings = {heading for _offset, heading in iter_headings(upstream_text)}
+    matches = list(iter_headings(fork_text))
     sections: list[tuple[str, str, str | None]] = []
-    for index, match in enumerate(matches):
-        heading = match.group(1)
+    for index, (start, heading) in enumerate(matches):
         if heading in upstream_headings:
             continue
-        start = match.start()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(fork_text)
-        next_heading = matches[index + 1].group(1) if index + 1 < len(matches) else None
+        end = matches[index + 1][0] if index + 1 < len(matches) else len(fork_text)
+        next_heading = matches[index + 1][1] if index + 1 < len(matches) else None
         section = fork_text[start:end].rstrip() + "\n\n"
         sections.append((heading, section, next_heading))
     return sections
@@ -74,15 +86,18 @@ def append_section(text: str, section: str) -> str:
 def insert_section(text: str, section: str, next_heading: str | None) -> str:
     if next_heading is None:
         return append_section(text, section)
-    match = re.search(rf"(?m)^{re.escape(next_heading)}$", text)
-    if match is None:
+    start = next(
+        (offset for offset, heading in iter_headings(text) if heading == next_heading),
+        None,
+    )
+    if start is None:
         return append_section(text, section)
-    prefix = text[: match.start()]
+    prefix = text[:start]
     if prefix and not prefix.endswith("\n"):
         prefix += "\n"
     if prefix and not prefix.endswith("\n\n"):
         prefix += "\n"
-    return prefix + section + text[match.start() :]
+    return prefix + section + text[start:]
 
 
 def restore_file(path: str, fork_text: str, upstream_text: str) -> None:
